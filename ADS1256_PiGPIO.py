@@ -36,16 +36,25 @@ PiGPIO port by Mitch Kahn, 4-2020 (Quarantine times...)
 
 import time
 import struct
-import wiringpi as wp
+import pigpio as io
 from ADS1256_definitions import *
-import ADS1256_default_config
+import ADS1256_default_config_pigpio
+
+# Will try later to replace the wiringpi function
+def usleep(x):
+    time.sleep(x / 1000000.0)
+    #wp.delayMicroseconds(x)
 
 class ADS1256(object):
     """Python class for interfacing the ADS1256 and ADS1255 analog to
     digital converters with the Raspberry Pi.
 
-    This is part of module PiPyADC
-    Download: https://github.com/ul-gh/PiPyADC
+    This is part of module waveshare_a2d_d2a_python:
+    Download: https://github.com/makahn64/waveshare_a2d_d2a_python
+
+    This project is a port of PiPyADC that used the wiringpi library. 90%+ of this
+    code is from that project.
+    Download Original Here: https://github.com/ul-gh/PiPyADC
 
     Default pin and settings configuration is for the Open Hardware
     "Waveshare High-Precision AD/DA Board"
@@ -63,12 +72,14 @@ class ADS1256(object):
     Documentation source: Texas Instruments ADS1255/ADS1256
     datasheet SBAS288: http://www.ti.com/lit/ds/sbas288j/sbas288j.pdf
     """
+
     @property
     def v_ref(self):
         """Get/Set ADC analog reference input voltage differential.
         This is only for calculation of output value scale factor.
         """
         return self._v_ref
+
     @v_ref.setter
     def v_ref(self, value):
         self._v_ref = value
@@ -87,14 +98,15 @@ class ADS1256(object):
         ACAL flag (AUTOCAL_ENABLE), this causes a Wait_DRDY() timeout
         for the calibration process to finish.
         """
-        return 2**(self.read_reg(REG_ADCON)&0b111)
+        return 2 ** (self.read_reg(REG_ADCON) & 0b111)
+
     @pga_gain.setter
     def pga_gain(self, value):
         if value not in (1, 2, 4, 8, 16, 32, 64):
             raise ValueError("Argument must be one of: 1, 2, 4, 8, 16, 32, 64")
         else:
             log2val = int.bit_length(value) - 1
-            self.write_reg(REG_ADCON, self.adcon&0b11111000 | log2val)
+            self.write_reg(REG_ADCON, self.adcon & 0b11111000 | log2val)
             if self._status & AUTOCAL_ENABLE:
                 self.wait_DRDY()
 
@@ -104,7 +116,8 @@ class ADS1256(object):
         Readonly: This is a convenience value calculated from
         gain and v_ref setting.
         """
-        return self.v_ref * 2.0/(self.pga_gain * (2**23 - 1))
+        return self.v_ref * 2.0 / (self.pga_gain * (2 ** 23 - 1))
+
     @v_per_digit.setter
     def v_per_digit(self, value):
         raise AttributeError("This is a read-only attribute")
@@ -119,6 +132,7 @@ class ADS1256(object):
         an additional delay for completion of hardware auto-calibration.
         """
         return self.read_reg(REG_STATUS)
+
     @status.setter
     def status(self, value):
         self.write_reg(REG_STATUS, value)
@@ -161,6 +175,7 @@ class ADS1256(object):
             for cyclic reads of multiple channels at once.
         """
         return self.read_reg(REG_MUX)
+
     @mux.setter
     def mux(self, value):
         self.write_reg(REG_MUX, value)
@@ -172,6 +187,7 @@ class ADS1256(object):
         wait_DRDY() timeout.
         """
         return self.read_reg(REG_ADCON)
+
     @adcon.setter
     def adcon(self, value):
         self.write_reg(REG_ADCON, value)
@@ -191,6 +207,7 @@ class ADS1256(object):
         The available data rates are defined in ADS1256_definitions.py.
         """
         return self.read_reg(REG_DRATE)
+
     @drate.setter
     def drate(self, value):
         self.write_reg(REG_DRATE, value)
@@ -205,6 +222,7 @@ class ADS1256(object):
         A timeout/debounce for the reading is not implemented.
         """
         return 0x0F & self.read_reg(REG_IO)
+
     @gpio.setter
     def gpio(self, value):
         self.write_reg(REG_IO, value)
@@ -218,12 +236,13 @@ class ADS1256(object):
         ofc0 = self.read_reg(REG_OFC0)
         ofc1 = self.read_reg(REG_OFC1)
         ofc2 = self.read_reg(REG_OFC2)
-        int24_result = ofc2<<16 | ofc1<<8 | ofc0
+        int24_result = ofc2 << 16 | ofc1 << 8 | ofc0
         # Take care of 24-Bit 2's complement.
         if int24_result < 0x800000:
             return int24_result
         else:
             return int24_result - 0x1000000
+
     @ofc.setter
     def ofc(self, value):
         value = int(value)
@@ -249,7 +268,8 @@ class ADS1256(object):
         fsc0 = self.read_reg(REG_FSC0)
         fsc1 = self.read_reg(REG_FSC1)
         fsc2 = self.read_reg(REG_FSC2)
-        return fsc2<<16 | fsc1<<8 | fsc0
+        return fsc2 << 16 | fsc1 << 8 | fsc0
+
     @fsc.setter
     def fsc(self, value):
         value = int(value)
@@ -272,31 +292,38 @@ class ADS1256(object):
         """
         self.wait_DRDY()
         return self.read_reg(REG_STATUS) >> 4
+
     @chip_ID.setter
     def chip_ID(self, value):
         raise AttributeError("This is a read-only attribute")
 
+    def __init__(self, conf=ADS1256_default_config_pigpio, pi=None):
+        """Constructor for the ADC object
+        Hardware pin configuration must be set up at initialization phase and can not be changed later.
+        Register/Configuration Flag settings are initialized, but these
+        can be changed during runtime via class properties.
+        Default config is read from external file (module) import
+        """
 
-    # Constructor for the ADC object: Hardware pin configuration must be
-    # set up at initialization phase and can not be changed later.
-    # Register/Configuration Flag settings are initialized, but these
-    # can be changed during runtime via class properties.
-    # Default config is read from external file (module) import
-    def __init__(self, conf=ADS1256_default_config):
-        # Set up the wiringpi object to use physical pin numbers
-        wp.wiringPiSetupPhys()
+        # Set up the pigpio object if not provided as an argument
+        if pi is None:
+            pi = io.pi()
+        self.pi = pi
+        if not pi.connected:
+            raise IOError("Could not connect to hardware via pigpio library")
+
         # Config and initialize the SPI and GPIO pins used by the ADC.
         # The following four entries are actively used by the code:
-        self.SPI_CHANNEL  = conf.SPI_CHANNEL
-        self.DRDY_PIN     = conf.DRDY_PIN
-        self.CS_PIN       = conf.CS_PIN
+        self.SPI_CHANNEL = conf.SPI_CHANNEL
+        self.DRDY_PIN = conf.DRDY_PIN
+        self.CS_PIN = conf.CS_PIN
         self.DRDY_TIMEOUT = conf.DRDY_TIMEOUT
-        self.DRDY_DELAY   = conf.DRDY_DELAY
+        self.DRDY_DELAY = conf.DRDY_DELAY
 
         # Only one GPIO input:
         if conf.DRDY_PIN is not None:
             self.DRDY_PIN = conf.DRDY_PIN
-            wp.pinMode(conf.DRDY_PIN,  wp.INPUT)
+            pi.set_mode(conf.DRDY_PIN, io.INPUT)
 
         # GPIO Outputs. Only the CS_PIN is currently actively used. ~RESET and
         # ~PDWN must be set to static logic HIGH level if not hardwired:
@@ -304,37 +331,45 @@ class ADS1256(object):
                     conf.RESET_PIN,
                     conf.PDWN_PIN):
             if pin is not None:
-                wp.pinMode(pin, wp.OUTPUT)
-                wp.digitalWrite(pin, wp.HIGH)
+                # wp.pinMode(pin, wp.OUTPUT)
+                # wp.digitalWrite(pin, wp.HIGH)
+                pi.set_mode(pin, io.OUTPUT)
+                pi.write(pin, 1)
 
         # Initialize the wiringpi SPI setup. Return value is the Linux file
         # descriptor for the SPI bus device:
-        fd = wp.wiringPiSPISetupMode(
-                conf.SPI_CHANNEL, conf.SPI_FREQUENCY, conf.SPI_MODE)
-        if fd == -1:
-            raise IOError("ERROR: Could not access SPI device file")
+        # fd = wp.wiringPiSPISetupMode(
+        #        conf.SPI_CHANNEL, conf.SPI_FREQUENCY, conf.SPI_MODE)
+        # if fd == -1:
+        #    raise IOError("ERROR: Could not access SPI device file")
+
+        # Initialize the pigpio SPI setup. Return value is a handle for the
+        # SPI device.
+        self.spi_id = pi.spi_open(conf.SPI_CHANNEL, conf.SPI_FREQUENCY, conf.SPI_FLAGS)
 
         # ADS1255/ADS1256 command timing specifications. Do not change.
         # Delay between requesting data and reading the bus for
         # RDATA, RDATAC and RREG commands (datasheet: t_6 >= 50*CLKIN period).
-        self._DATA_TIMEOUT_US = int(1 + (50*1000000)/conf.CLKIN_FREQUENCY)
+        self._DATA_TIMEOUT_US = int(1 + (50 * 1000000) / conf.CLKIN_FREQUENCY)
         # Command-to-command timeout after SYNC and RDATAC
         # commands (datasheet: t11)
-        self._SYNC_TIMEOUT_US = int(1 + (24*1000000)/conf.CLKIN_FREQUENCY)
+        self._SYNC_TIMEOUT_US = int(1 + (24 * 1000000) / conf.CLKIN_FREQUENCY)
         # See datasheet ADS1256: CS needs to remain low
         # for t_10 = 8*T_CLKIN after last SCLK falling edge of a command.
         # Because this delay is longer than timeout t_11 for the
         # RREG, WREG and RDATA commands of 4*T_CLKIN, we do not need
         # the extra t_11 timeout for these commands when using software
         # chip select selection and the _CS_TIMEOUT_US.
-        self._CS_TIMEOUT_US   = int(1 + (8*1000000)/conf.CLKIN_FREQUENCY)
+        self._CS_TIMEOUT_US = int(1 + (8 * 1000000) / conf.CLKIN_FREQUENCY)
         # When using hardware/hard-wired chip select, still a command-
         # to command timeout of t_11 is needed as a minimum for the
         # RREG, WREG and RDATA commands.
-        self._T_11_TIMEOUT_US   = int(1 + (4*1000000)/conf.CLKIN_FREQUENCY)
+        self._T_11_TIMEOUT_US = int(1 + (4 * 1000000) / conf.CLKIN_FREQUENCY)
+
+        # MAK: T11 is 1us, CS is 2us with stock clock freq
 
         # Initialise class properties
-        self.v_ref         = conf.v_ref
+        self.v_ref = conf.v_ref
 
         # At hardware initialisation, a settling time for the oscillator
         # is necessary before doing any register access.
@@ -347,59 +382,65 @@ class ADS1256(object):
         # Configure ADC registers:
         # Status register not yet set, only variable written to avoid multiple
         # triggering of the AUTOCAL procedure by changing other register flags
-        self._status       = conf.status
+        self._status = conf.status
         # Class properties now configure registers via their setter functions
-        self.mux           = conf.mux
-        self.adcon         = conf.adcon
-        self.drate         = conf.drate
-        self.gpio          = conf.gpio
-        self.status        = conf.status
-
+        self.mux = conf.mux
+        self.adcon = conf.adcon
+        self.drate = conf.drate
+        self.gpio = conf.gpio
+        self.status = conf.status
 
     def _chip_select(self):
         # If chip select hardware pin is connected to SPI bus hardware pin or
         # hardwired to GND, do nothing.
         if self.CS_PIN is not None:
-            wp.digitalWrite(self.CS_PIN, wp.LOW)
+            # wp.digitalWrite(self.CS_PIN, wp.LOW)
+            self.pi.write(self.CS_PIN, 0)
 
     # Release chip select and implement t_11 timeout
     def _chip_release(self):
+        #TODO the code below should be written delay->if?
         if self.CS_PIN is not None:
-            wp.delayMicroseconds(self._CS_TIMEOUT_US)
-            wp.digitalWrite(self.CS_PIN, wp.HIGH)
+            # TODO replace with sleep?
+            #wp.delayMicroseconds(self._CS_TIMEOUT_US)
+            usleep(self._CS_TIMEOUT_US)
+            self.pi.write(self.CS_PIN,1)
         else:
             # The minimum t_11 timeout between commands, see datasheet Figure 1.
-            wp.delayMicroseconds(self._T_11_TIMEOUT_US)
+            #wp.delayMicroseconds(self._T_11_TIMEOUT_US)
+            usleep(self._CS_TIMEOUT_US)
 
     def _send_uint8(self, *vals):
         # Reads integers in range (0, 255), sends as uint-8 via the SPI bus
-        wp.wiringPiSPIDataRW(self.SPI_CHANNEL,
-                             struct.pack("{}B".format(len(vals)), *vals))
+        # wp.wiringPiSPIDataRW(self.SPI_CHANNEL,
+        #                      struct.pack("{}B".format(len(vals)), *vals))
         # Python3 only:
         # wp.wiringPiSPIDataRW(self.SPI_CHANNEL, bytes(vals))
+        self.pi.spi_write(self.spi_id, bytes(vals))
 
     def _read_uint8(self, n_vals=1):
         # Returns tuple containing unsigned 8-bit int interpretation of
         # n_vals bytes read via the SPI bus. n_bytes is supposed to
-        n_bytes, data = wp.wiringPiSPIDataRW(self.SPI_CHANNEL, b"\xFF"*n_vals)
-        assert n_bytes == n_vals
-        return struct.unpack("{}B".format(n_bytes), data)
+        # n_bytes, data = wp.wiringPiSPIDataRW(self.SPI_CHANNEL, b"\xFF" * n_vals)
+        # assert n_bytes == n_vals
+        # return struct.unpack("{}B".format(n_bytes), data)
         # Python3 only:
-        # return tuple(data)
+        bytes, data = self.pi.spi_read(self.spi_id, n_vals)
+        return tuple(data)
 
     def _read_int24(self):
         # Returns signed int interpretation of three bytes read via the SPI bus
-        _, data = wp.wiringPiSPIDataRW(self.SPI_CHANNEL, b"\xFF\xFF\xFF")
-        return struct.unpack(">i", data + b"\x00")[0] >> 8
+        # _, data = wp.wiringPiSPIDataRW(self.SPI_CHANNEL, b"\xFF\xFF\xFF")
+        # return struct.unpack(">i", data + b"\x00")[0] >> 8
         # Python3 only:
-        # return int.from_bytes(data, "big", signed=True)
+        _, data = self.pi.spi_read(self.spi_id, 3)
+        return int.from_bytes(data, "big", signed=True)
 
     def _send_int24(self, val):
-        wp.wiringPiSPIDataRW(self.SPI_CHANNEL, struct.pack(">i", val))[1:4]
+        #wp.wiringPiSPIDataRW(self.SPI_CHANNEL, struct.pack(">i", val))[1:4]
         # Python3 only:
         # wp.wiringPiSPIDataRW(self.SPI_CHANNEL, int.to_bytes(val, 3, "big"))
-
-
+        self.pi.spi_write(self.spi_id, int.to_bytes(val, 3, "big"))
 
     def wait_DRDY(self):
         """Delays until the configured DRDY input pin is pulled to
@@ -421,19 +462,17 @@ class ADS1256(object):
         elapsed = time.time() - start
         # Waits for DRDY pin to go to active low or DRDY_TIMEOUT seconds to pass
         if self.DRDY_PIN is not None:
-            drdy_level = wp.digitalRead(self.DRDY_PIN)
-            while (drdy_level == wp.HIGH) and (elapsed < self.DRDY_TIMEOUT):
+            #drdy_level = wp.digitalRead(self.DRDY_PIN)
+            drdy_level = self.pi.read(self.DRDY_PIN)
+            while (drdy_level == 1) and (elapsed < self.DRDY_TIMEOUT):
                 elapsed = time.time() - start
-                drdy_level = wp.digitalRead(self.DRDY_PIN)
+                drdy_level = self.pi.read(self.DRDY_PIN)
                 # Delay in order to avoid busy wait and reduce CPU load.
                 time.sleep(self.DRDY_DELAY)
             if elapsed >= self.DRDY_TIMEOUT:
                 print("\nWarning: Timeout while polling configured DRDY pin!\n")
         else:
             time.sleep(self.DRDY_TIMEOUT)
-
-
-
 
     def read_reg(self, register):
         """Returns data byte from the specified register
@@ -442,12 +481,12 @@ class ADS1256(object):
         """
         self._chip_select()
         self._send_uint8(CMD_RREG | register, 0x00)
-        wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        #wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        usleep(self._DATA_TIMEOUT_US)
         read, = self._read_uint8()
         # Release chip select and implement t_11 timeout
         self._chip_release()
         return read
-
 
     def write_reg(self, register, data):
         """Writes data byte to the specified register
@@ -457,10 +496,9 @@ class ADS1256(object):
         self._chip_select()
         # Tell the ADS chip which register to start writing at,
         # how many additional registers to write (0x00) and send data
-        self._send_uint8(CMD_WREG | register, 0x00, data&0xFF)
+        self._send_uint8(CMD_WREG | register, 0x00, data & 0xFF)
         # Release chip select and implement t_11 timeout
         self._chip_release()
-
 
     def cal_self_offset(self):
         """Perform an input zero calibration using chip-internal
@@ -474,7 +512,6 @@ class ADS1256(object):
         # Release chip select and implement t_11 timeout
         self._chip_release()
 
-
     def cal_self_gain(self):
         """Perform an input full-scale calibration
         using chip-internal circuitry connected to VREFP and VREFN.
@@ -486,7 +523,6 @@ class ADS1256(object):
         self.wait_DRDY()
         # Release chip select and implement t_11 timeout
         self._chip_release()
-
 
     def cal_self(self):
         """Perform an input zero and full-scale two-point-calibration
@@ -500,7 +536,6 @@ class ADS1256(object):
         # Release chip select and implement t_11 timeout
         self._chip_release()
 
-
     def cal_system_offset(self):
         """Set the ADS1255/ADS1256 OFC register such that the
         current input voltage corresponds to a zero output value.
@@ -511,7 +546,6 @@ class ADS1256(object):
         self.wait_DRDY()
         # Release chip select and implement t_11 timeout
         self._chip_release()
-
 
     def cal_system_gain(self):
         """Set the ADS1255/ADS1256 FSC register such that the current
@@ -524,7 +558,6 @@ class ADS1256(object):
         # Release chip select and implement t_11 timeout
         self._chip_release()
 
-
     def standby(self):
         """Put chip in low-power standby mode
         """
@@ -532,7 +565,6 @@ class ADS1256(object):
         self._send_uint8(CMD_STANDBY)
         # Release chip select and implement t_11 timeout
         self._chip_release()
-
 
     def wakeup(self):
         """Wake up the chip from standby mode.
@@ -549,7 +581,6 @@ class ADS1256(object):
         # Release chip select and implement t_11 timeout
         self._chip_release()
 
-
     def reset(self):
         """Reset all registers except CLK0 and CLK1 bits
         to reset values and Polls for DRDY change / timeout afterwards.
@@ -559,7 +590,6 @@ class ADS1256(object):
         self.wait_DRDY()
         # Release chip select and implement t_11 timeout
         self._chip_release()
-
 
     def sync(self):
         """Restart the ADC conversion cycle with a SYNC + WAKEUP
@@ -572,11 +602,11 @@ class ADS1256(object):
         """
         self._chip_select()
         self._send_uint8(CMD_SYNC)
-        wp.delayMicroseconds(self._SYNC_TIMEOUT_US)
+        #wp.delayMicroseconds(self._SYNC_TIMEOUT_US)
+        usleep(self._SYNC_TIMEOUT_US)
         self._send_uint8(CMD_WAKEUP)
         # Release chip select and implement t_11 timeout
         self._chip_release()
-
 
     def read_async(self):
         """Read ADC result as soon as possible
@@ -605,13 +635,13 @@ class ADS1256(object):
         # Send the read command
         self._send_uint8(CMD_RDATA)
         # Wait through the data pause
-        wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        #wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        usleep(self._DATA_TIMEOUT_US)
         # The result is 24 bits big endian two's complement value by default
         int24_result = self._read_int24()
         # Release chip select and implement t_11 timeout
         self._chip_release()
         return int24_result
-
 
     def read_oneshot(self, diff_channel):
         """Restart/re-sync ADC and read the specified input pin pair.
@@ -642,19 +672,20 @@ class ADS1256(object):
         self._send_uint8(CMD_WREG | REG_MUX, 0x00, diff_channel)
         # Restart/start the conversion cycle with set input pins
         self._send_uint8(CMD_SYNC)
-        wp.delayMicroseconds(self._SYNC_TIMEOUT_US)
+        #wp.delayMicroseconds(self._SYNC_TIMEOUT_US)
+        usleep(self._SYNC_TIMEOUT_US)
         self._send_uint8(CMD_WAKEUP)
         self.wait_DRDY()
         # Read data from ADC, which still returns the /previous/ conversion
         # result from before changing inputs
         self._send_uint8(CMD_RDATA)
-        wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        #wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        usleep(self._DATA_TIMEOUT_US)
         # The result is 24 bits little endian two's complement value by default
         int24_result = self._read_int24()
         # Release chip select and implement t_11 timeout
         self._chip_release()
         return int24_result
-
 
     def read_and_next_is(self, diff_channel):
         """Reads ADC data of presently running or already finished
@@ -683,21 +714,23 @@ class ADS1256(object):
         self._send_uint8(CMD_WREG | REG_MUX, 0x00, diff_channel)
         # Restart/start next conversion cycle with new input config
         self._send_uint8(CMD_SYNC)
-        wp.delayMicroseconds(self._SYNC_TIMEOUT_US)
+        #wp.delayMicroseconds(self._SYNC_TIMEOUT_US)
+        usleep(self._SYNC_TIMEOUT_US)
         self._send_uint8(CMD_WAKEUP)
         # The datasheet is a bit unclear if a t_11 timeout is needed here.
         # Assuming the extra timeout is the safe choice:
-        wp.delayMicroseconds(self._T_11_TIMEOUT_US)
+        #wp.delayMicroseconds(self._T_11_TIMEOUT_US)
+        usleep(self._SYNC_TIMEOUT_US)
         # Read data from ADC, which still returns the /previous/ conversion
         # result from before changing inputs
         self._send_uint8(CMD_RDATA)
-        wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        #wp.delayMicroseconds(self._DATA_TIMEOUT_US)
+        usleep(CMD_RDATA)
         # The result is 24 bits little endian two's complement value by default
         int24_result = self._read_int24()
         # Release chip select and implement t_11 timeout
         self._chip_release()
         return int24_result
-
 
     def read_continue(self, ch_sequence, ch_buffer=None):
         """Continues reading a cyclic sequence of ADC input channel pin pairs.
@@ -732,9 +765,8 @@ class ADS1256(object):
         if ch_buffer is None:
             ch_buffer = [0] * buf_len
         for i in range(0, buf_len):
-            ch_buffer[i] = self.read_and_next_is(ch_sequence[(i+1)%buf_len])
+            ch_buffer[i] = self.read_and_next_is(ch_sequence[(i + 1) % buf_len])
         return ch_buffer
-
 
     def read_sequence(self, ch_sequence, ch_buffer=None):
         """Reads a sequence of ADC input channel pin pairs.
@@ -767,9 +799,5 @@ class ADS1256(object):
         if ch_buffer is None:
             ch_buffer = [0] * buf_len
         for i in range(0, buf_len):
-            ch_buffer[i] = self.read_and_next_is(ch_sequence[(i+1)%buf_len])
+            ch_buffer[i] = self.read_and_next_is(ch_sequence[(i + 1) % buf_len])
         return ch_buffer
-
-
-
-
