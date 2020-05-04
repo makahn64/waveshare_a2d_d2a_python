@@ -5,6 +5,10 @@ import struct
 import pigpio as io
 from ADS1256_definitions import *
 
+# Change this to the local DNS name of your Pi (often raspberrypi.local, if you have changed it) or
+# make it blank to connect to localhost.
+PI_HOST = 'klabs.local'
+
 SPI_CHANNEL = 1
 SPI_FLAGS = 0b0000000000000011100001
 SPI_FREQUENCY = 976563
@@ -85,7 +89,7 @@ def read_reg(register):
     chip_select(False)
     return d
 
-pi = io.pi('klabs.local')
+pi = io.pi(PI_HOST)
 if not pi.connected:
     raise IOError("Could not connect to hardware via pigpio library")
 

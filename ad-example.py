@@ -14,6 +14,10 @@ import pigpio as io
 from ADS1256_definitions import *
 from ADS1256_PiGPIO import ADS1256
 
+# Change this to the local DNS name of your Pi (often raspberrypi.local, if you have changed it) or
+# make it blank to connect to localhost.
+PI_HOST = 'klabs.local'
+
 # if not os.path.exists("/dev/spidev0.1"):
 #     raise IOError("Error: No SPI device. Check settings in /boot/config.txt")
 
@@ -65,7 +69,7 @@ def do_measurement():
     ### STEP 1: Initialise ADC object using default configuration:
     # (Note1: See ADS1256_default_config.py, see ADS1256 datasheet)
     # (Note2: Input buffer on means limited voltage range 0V...3V for 5V supply)
-    ads = ADS1256(pi=io.pi('klabs.local'))
+    ads = ADS1256(pi=io.pi(PI_HOST))
 
     ### STEP 2: Gain and offset self-calibration:
     ads.cal_self()

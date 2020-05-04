@@ -7,6 +7,11 @@ import struct
 import pigpio as io
 from DAC8552_PiGPIO import DAC8552, DAC_A, DAC_B, MODE_POWER_DOWN_100K
 
+# Change this to the local DNS name of your Pi (often raspberrypi.local, if you have changed it) or
+# make it blank to connect to localhost.
+PI_HOST = 'klabs.local'
+
+
 SPI_CHANNEL = 1
 SPI_FLAGS = 0b0000000000000011100001
 SPI_FREQUENCY = 976563
@@ -42,14 +47,15 @@ def send_byte(register, value):
     pi.spi_write(spi_iface, bytes(value))
 
 
-pi = io.pi('klabs.local')
+pi = io.pi(PI_HOST)
 if not pi.connected:
     raise IOError("Could not connect to hardware via pigpio library")
 
 # dac = DAC8552(pi=pi)
 # dac.write_dac(DAC_A, 0x9fff)
 spi_iface = pi.spi_open(SPI_CHANNEL, SPI_FREQUENCY, SPI_FLAGS)
-print('We are connected to klabs.local')
+hostName = PI_HOST if PI_HOST else 'localhost'
+print('We are connected to ', hostName)
 
 chip_select(True)
 payload = load_a_cmd(0xfff)

@@ -11,8 +11,12 @@ import pigpio as io
 
 from DAC8552_PiGPIO import DAC8552, DAC_A, DAC_B, MODE_POWER_DOWN_100K
 
+# Change this to the local DNS name of your Pi (often raspberrypi.local, if you have changed it) or
+# make it blank to connect to localhost.
+PI_HOST = 'klabs.local'
+
 # STEP 1: Initialise DAC object:
-dac = DAC8552(pi=io.pi('klabs.local'))
+dac = DAC8552(pi=io.pi(PI_HOST))
 
 try:
     print("\033[2J\033[H")  # Clear screen

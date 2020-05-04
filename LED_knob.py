@@ -5,6 +5,10 @@ from DAC8552_PiGPIO import DAC8552, DAC_A, DAC_B, MODE_POWER_DOWN_100K
 from ADS1256_definitions import *
 from ADS1256_PiGPIO import ADS1256
 
+# Change this to the local DNS name of your Pi (often raspberrypi.local, if you have changed it) or
+# make it blank to connect to localhost.
+PI_HOST = 'klabs.local'
+
 POTI = POS_AIN0|NEG_AINCOM
 # Light dependant resistor of the same board:
 LDR  = POS_AIN1|NEG_AINCOM
@@ -26,7 +30,7 @@ SHORT_CIRCUIT = POS_AIN0|NEG_AIN0
 # Eight channels fit on the screen nicely for this example..
 CH_SEQUENCE = (POTI, LDR, EXT2, EXT3, EXT4, EXT7, POTI_INVERTED, SHORT_CIRCUIT)
 
-pi=io.pi('klabs.local')
+pi=io.pi(PI_HOST)
 
 dac = DAC8552(pi=pi)
 adc = ADS1256(pi=pi)
